@@ -77,6 +77,9 @@ fabric.properties
 # Android studio 3.1+ serialized cache file
 .idea/caches/build_file_checksums.ser
 
+# MarkdownProjectSettings
+misc.xml
+
 ### TextMate template
 *.tmproj
 *.tmproject
@@ -273,3 +276,9 @@ cython_debug/
 #.idea/
 
 /.idea/vcs.xml
+
+# heofon artefacts
+heofon.iml
+output/
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/inspectionProfiles/Project_Default.xml
