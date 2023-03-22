@@ -7,6 +7,28 @@ from copy import deepcopy
 logger = logging.getLogger(__name__)
 
 
+def path_proof_name(name):
+    """
+        Some characters used in naming page objects or screenshots are
+        not safe for paths, so clean up those names.
+
+        :param name: str, name to be used for a file
+        :return clean_name: transformed and presumed safe name
+    """
+    if not name:
+        clean_name = 'None'
+    else:
+        # the most common problems are a slash
+        clean_name = name.replace('/', '-')
+        # and spaces
+        clean_name = clean_name.replace(' ', '_')
+        # and quotes
+        clean_name = clean_name.replace('"', '')
+        clean_name = clean_name.replace("'", '')
+
+    return clean_name
+
+
 def create_test_output_folder(timestamped_name):
     """
         Every pytest invocation triggers a bunch of logging actions. During
@@ -49,7 +71,7 @@ def create_test_output_subfolder(path, folder):
 
         :param path:
         :param folder:
-        :return:
+        :return folder_path: Path object path to this folder
     """
     # generate the path to the output subfolder
     folder_path = path / folder
