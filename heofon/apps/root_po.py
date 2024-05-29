@@ -7,18 +7,45 @@ import pdb
 #
 from heofon.framework.exceptions import PageUnloadException
 from heofon.framework.exceptions import PageLoadException
-# from welkin.framework.exceptions import PageIdentityException
-# from welkin.framework.exceptions import ControlInteractionException
+# from heofon.framework.exceptions import PageIdentityException
+# from heofon.framework.exceptions import ControlInteractionException
 #
-# from welkin.framework import checks
-from heofon.framework import utils, utils_file
+# from heofon.framework import checks
+from heofon.framework import utils, utils_file, utils_playwright
 
 logger = logging.getLogger(__name__)
 
 
 class RootPageObject(object):
 
-    def load_po(self, po_id, cross_auth_boundary=False):
+    def resolve_po(self, po_id, cross_auth_boundary=False, **opts):
+        """
+            Using the string id of the pageobject for the desired page,
+            identify the pageobject's class and instantiate it.
+
+            The importing of the modules and classes has to be done
+            dynamically -- and in this method -- in order to avoid
+            recursive import loops on start up.
+
+            This uses the data model in the PO's wrapper routings.py for
+            a mapping between the page/PO name with the module and
+            the object name for that PO.
+
+            What makes this method a little more complicated is the fact
+            that the PO instantiation has to be aware of crossing the
+            boundary between noauth and auth pages, because those PO
+            modules live in separate folders. This boundary is in play
+            when logging in from a noauth page (at which point the user
+            should be known to the system for subsequent pages), or when
+            logging out from an auth page (at which point the user should
+            be forgotten by the system).
+
+            :param po_id: str, key for the page object in the POM data model
+            :param cross_auth_boundary: bool, true to trigger a switch between
+                                        auth and noath routing, or vice versa
+            :param opts: dict, pass-through parameters for the PO's __init__()
+            :return: page object for the target page
+        """
         # import the routings module for the appropriate wrapper
         # the path (minus the file name) lives in this wrapper's BasePageObject
         import_path_to_routings = self.routings_path + 'routings'
@@ -73,9 +100,141 @@ class RootPageObject(object):
 
         # instantiate a class instance for the PageObject.
         # Note: at this point, in this method, `self` refers to the old PO
-        new_pageobject_instance = pageobject_class(self.pwpage)
+        unvalidated_pageobject = pageobject_class(self.pwpage)
+        return unvalidated_pageobject
 
+    def load_po(self, po_id, cross_auth_boundary=False, **opts):
+        """
+            Load the page object for the page that has been navigated to,
+            and return it.
+
+            The philosophy behind this method is that there are three layers
+            of abstraction to driving a browser programmatically from test code:
+                1. our test code interacts with the browser and triggers browser
+                events.
+                2. the browser acts on these interactions and triggers, changing
+                its state.
+                3. we abstract and manage expected browser context with our page
+                object model. Our test code operates in this abstraction layer.
+
+            Every time the browser changes its state, we must update our
+            expectations about the browser state. To do this, we must force
+            reloads of the page object model when ever we take a state-changing
+            interaction. We do this by loading and returning an updated page
+            object on taking test actions.
+
+            This method load_pageobject() is responsible for managing the model's
+            state transitions, but performing checks that the current browser page
+            is the one we expect to be on.
+
+            :param po_id: str, key for the page object in the POM data model
+            :param cross_auth_boundary: bool, true to trigger a switch between
+                                        auth and noath routing, or vice versa
+            :param opts: dict, pass-through parameters for the PO's __init__()
+            :return: page object for the target page
+        """
+        # get the previous page's name; remember that the browser has changed
+        # state and we are trying to catch the page object up to the browser
+        last_page = self.name  # noqa: F841
+
+        # get the pageobject for the expected new page
+        # at this point, we do NOT know if the browser loaded the page correctly!
+        new_pageobject_instance = self.resolve_po(
+            po_id, cross_auth_boundary=False, **opts)
+
+        # TODO: actually verify page load
+        event = f"loaded page '{po_id}'"
+
+        # perform a series of data collection and file-writes for the NEW page
+        # which has NOT YET been instantiated as a page object
+
+        # write the cookies FOR THE NEW PAGE to a file
+        new_pageobject_instance.save_cookies(filename=event)
+
+        # write browser console logs FOR THE NEW PAGE to files
+        new_pageobject_instance.save_browser_logs(filename=event)
+
+        # write webstorage FOR THE NEW PAGE to files
+        new_pageobject_instance.save_webstorage(event=event, set_this_event=False)
+
+        # with this return, the page object model is now in sync
+        # with the browser
         return new_pageobject_instance
+
+    # #######################################
+    # browser data methods
+    # #######################################
+    def save_cookies(self, filename=''):
+        """
+            Get the current page's cookies and save to a file.
+
+            The filename can be specified by the calling code, but the
+            expectation is that this is either:
+            1. an event string, because the trigger for saving these cookies
+               could be a page object load or reload
+            2. the default of the page object's name
+
+            :param filename: str filename for the log file;
+                             defaults to PO name
+            :return: None
+        """
+        fname = filename if filename else self.name
+        # get the cookies from the driver and save to the PO
+        self.cookies = self.pwpage.context.cookies()
+        # and also write them to a file
+        utils_file.write_cookies_to_file(self.cookies, self.url, fname=fname)
+
+    def save_webstorage(self, event, set_this_event=True):
+        """
+            Get the localStorage and sessionStorage for the current page (if
+            available), and then write them to logfiles.
+
+            Note: because the storage is closely tied to app state (if this
+            is a React app), use the event as the base for the file name!
+
+            Note: sometimes we don't want to call set_event() for the event
+            `event`.
+
+            :param event: str, name of the event
+            :param set_this_event: bool, true to call set_event for this event
+            :return: None
+        """
+        data = self.get_webstorage()
+        if set_this_event:
+            self.set_event(event)
+        utils_file.write_webstorage_to_files(data,
+                                             current_url=self.url,
+                                             pageobject_name=self.name,
+                                             event=event)
+
+    def get_webstorage(self):
+        """
+            Wrapper to call methods to get browser local and session storage
+            for the current page and convert to python dicts.
+
+            :return: tuple of local storage dict and session storage dict
+        """
+        local = utils_playwright.get_local_storage(self.pwpage)
+        session = utils_playwright.get_session_storage(self.pwpage)
+        return local, session
+
+    def save_browser_logs(self, filename=''):
+        """
+            Grab the Chrome driver console and network logs and write them
+            to files.
+
+            :param filename: str filename for the log file;
+                             defaults to PO name
+            :return:
+        """
+        # set the cleaned file name
+        fname = filename if filename else self.name
+
+        console_log = utils_playwright.get_console_log(self.pwpage)
+
+        # write the scan logs to /console
+        utils_file.write_console_log_to_file(log=console_log,
+                                             url=self.url, fname=fname)
 
     # #######################################
     # page object transition methods
@@ -183,7 +342,6 @@ class RootPageObject(object):
             'on page': page_name if page_name else self.name
         }
         logger.info(f"\nbrowser interaction event:\n{utils.plog(this_event)}")
-
 
     # #######################################
     # interaction event wrappers

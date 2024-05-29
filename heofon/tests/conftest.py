@@ -126,7 +126,7 @@ def pytest_configure(config):
     # based on the browser, also set a devtools flag that
     # will control the creation of some output folders; we need to
     # not add folders for unsupported browser info methods
-    if config.getoption('browser') in ['chrome', 'headless_chrome']:
+    if config.getoption('browser') in ['chromium', 'headless_chromium']:
         update_namespace({'devtools_supported': True}, verbose=True)
     else:
         update_namespace({'devtools_supported': False}, verbose=True)
@@ -831,6 +831,8 @@ def pwpage(request, browser):
 
         context = this_browser.new_context()
         pwpage = context.new_page()
+        # logger.info(f"\npwpage.__dict__: {utils.plog(pwpage.__dict__)}")
+        # logger.info(f"\ndir(pwpage): {utils.plog(dir(pwpage))}")
 
         yield pwpage
 
