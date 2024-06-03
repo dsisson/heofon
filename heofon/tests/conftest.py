@@ -11,8 +11,10 @@ logger = logging.getLogger(__name__)
 # setting up the log file filenames
 FRAMEWORK = 'heofon'
 TESTRUN_LOGFILE_NAME = 'runlog.txt'
-TESTCASE_LOGFILE_NAME = 'testlog.txt'
 TESTRUN_HTML_REPORT = 'report.html'
+TESTCASE_LOGFILE_NAME = 'testlog.txt'
+TESTCASE_PLAYWRIGHT_TRACING = 'trace.zip'
+
 # hacky global counter for iterating over collected
 # tests in pytest_runtest_setup()
 COUNT = 1
@@ -78,6 +80,12 @@ def pytest_addoption(parser):
                      default='chromium',
                      help='Specify the browser to use: "chromium", "headless_chromium".')
 
+    parser.addoption('--tracing',
+                     action='store',
+                     dest='playwright_tracing',
+                     choices=['on', 'off'],
+                     default='off',
+                     help='Specify whether to trace Playwright.')
 
     # if '--help' in sys.argv:
     #     # If pytest is invoked with the "help" option, we don't want to
@@ -830,11 +838,29 @@ def pwpage(request, browser):
             raise ValueError(msg)
 
         context = this_browser.new_context()
+
+        if request.config.option.playwright_tracing == 'on':
+            # To enable playwright tracing, we need to start it before
+            # any test actions are taken.
+            path_tracing = str(pytest.custom_namespace['this_test']) \
+                           + TESTCASE_PLAYWRIGHT_TRACING
+            context.tracing.start(screenshots=True)
+            logger.info(f"\nGenerating tracing content.")
+
+
+        # Create the Playwright Page instance, which is a single tab
+        # in the browser. To disambiguate this while simultaneously
+        # making it very confusing, we'll call this `pwpage`.
         pwpage = context.new_page()
         # logger.info(f"\npwpage.__dict__: {utils.plog(pwpage.__dict__)}")
         # logger.info(f"\ndir(pwpage): {utils.plog(dir(pwpage))}")
 
         yield pwpage
+
+        if request.config.option.playwright_tracing == 'on':
+            # To generate the trace file, we need to stop it after.
+            context.tracing.stop(path=path_tracing)
+            logger.info(f"\nSaving tracing output.")
 
         context.close()  # gracefully close and flush artifacts
         logger.info(f"\nClosing context.")
