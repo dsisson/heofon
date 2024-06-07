@@ -73,28 +73,12 @@ def pytest_addoption(parser):
                      default='stage',
                      help='Specify the tier: "qa", "stage", "prod".')
 
-    parser.addoption('--browser',
-                     action='store',
-                     dest='browser',
-                     choices=['chromium', 'headless_chromium'],
-                     default='chromium',
-                     help='Specify the browser to use: "chromium", "headless_chromium".')
-
-    parser.addoption('--tracing',
-                     action='store',
-                     dest='playwright_tracing',
-                     choices=['on', 'off'],
-                     default='off',
-                     help='Specify whether to trace Playwright.')
-
-    # if '--help' in sys.argv:
-    #     # If pytest is invoked with the "help" option, we don't want to
-    #     # generate the HTML results report because that will error out.
-    #     # Don't create any output folders or logs.
-    #     pass
-    # else:
-    #     initialize_logging()
-    # logger.info(f"\nsys.argv: {sys.argv}")
+    # parser.addoption('--xbrowser',
+    #                  action='store',
+    #                  dest='xbrowser',
+    #                  choices=['chromium', 'headless_chromium'],
+    #                  default='chromium',
+    #                  help='Specify the browser to use: "chromium", "headless_chromium".')
 
 
 # 1.0
@@ -119,7 +103,10 @@ def pytest_configure(config):
         :return: None
     """
     initialize_logging(config)
-    logger.info(f"sys.argv: {sys.argv}")
+    # logger.info(f"\nsys.argv: {utils.plog(sys.argv)}")
+    # logger.info(f"\ndir(config.option): {utils.plog(dir(config.option))}")
+    # for key in config.option.__dict__:
+    #    logger.info(f"\n --> {key}: {config.option.__dict__[key]}")
 
     # extract the values of the following sys.args options
     # and push them into the namespace
@@ -134,11 +121,17 @@ def pytest_configure(config):
     # based on the browser, also set a devtools flag that
     # will control the creation of some output folders; we need to
     # not add folders for unsupported browser info methods
-    if config.getoption('browser') in ['chromium', 'headless_chromium']:
+    # the PW `browser` property is a list; we only want the first browser
+    browser = config.getoption('browser')[0]
+    logger.info(f"\n----> browser: {browser}")
+    headed = config.getoption('headed')
+    logger.info(f"\n----> headed: {headed}")
+    if 'chromium' in browser:
+        update_namespace({'devtools_supported': True}, verbose=True)
+    elif 'firefox' in browser:
         update_namespace({'devtools_supported': True}, verbose=True)
     else:
         update_namespace({'devtools_supported': False}, verbose=True)
-
 
 
 # 2.0
@@ -395,14 +388,20 @@ def configure_test_session(request):
         Use configure_test_session() for any global test session and
         fixture logic.
 
+        Note: this is where we grab the Playwright `tracing` argument.
+
         :param request: pytest request object (context of the
                         calling test method)
         :return: None
     """
     logger.info('--------------')
     logger.info('request.session.__dict__: %s' % request.session.__dict__)
-    # logger.info('request.config.__dict__: %s' % request.config.__dict__)
+    logger.info('request.config.__dict__: %s' % request.config.__dict__)
     logger.info('sys.argv: %s' % sys.argv)
+
+    # handle the playwright CLI `tracing` argument
+    playwright_tracing(request)
+
     logger.info('--------------')
 
 
@@ -647,9 +646,6 @@ def set_up_testcase_reporting(testcase_folder, fixturenames):
                     f"\n{utils.plog(pytest.custom_namespace)}")
 
 
-
-
-
 # # 0.2
 # def set_logging_config(kwargs):
 #     """
@@ -689,8 +685,6 @@ def add_opts_to_namespace(config):
 
     # update our hacky namespace
     update_namespace(namespace_data, verbose=True)
-
-
 
 
 # 1.3
@@ -748,14 +742,18 @@ def browser(request):
 
         The request object is introspected for the desired parameter value.
 
+        Playwright generates this is a list of strings, but we only want the
+        first browser specified. This hack disables the ability to run
+        different brpwsers in parallel.
+
         For example:
-        $ pytest tests --browser=chrome
+        $ pytest tests --browser=chromium
 
         :param request: pytest request object
-        :return: str, identifier for the appropriate browser driver
+        :return this_browser: str, identifier for the appropriate browser driver
     """
-    this_browser = request.config.option.browser
-    logger.info('this_browser = %s' % this_browser)
+    this_browser = request.config.option.browser[0]  # just the first
+    logger.info(f"this_browser: {this_browser}")
 
     # # hack!
     # if not this_browser:
@@ -764,44 +762,21 @@ def browser(request):
     return this_browser
 
 
-# def browser_chromium():
-#     """
-#         Launch the local browser, which will block other activities
-#         on the computer.
-#     """
-#     from selenium import webdriver
-#     from selenium.webdriver.chrome.options import Options
-#
-#     chrome_options = Options()  # noqa: F841
-#     # default_dir = {'download.default_directory': None#}
-#     # chrome_options.add_experimental_option('prefs')
-#
-#     capabilities = base_chrome_capabilities()
-#     # this_driver = webdriver.Chrome(options=chrome_options,
-#     #                                desired_capabilities=capabilities)
-#     this_driver = webdriver.Chrome(desired_capabilities=capabilities)
-#     return this_driver
-#
-#
-# def browser_chromium_headless():
-#     """
-#         This allows for full-page screenshots, as well as not blocking
-#         use of the local computer.
-#     """
-#     from selenium import webdriver
-#     from selenium.webdriver.chrome.options import Options
-#
-#     chrome_options = Options()
-#     chrome_options.add_argument('--headless')
-#     # default_dir = {'download.default_directory': None#}
-#     # chrome_options.add_experimental_option('prefs')
-#
-#     capabilities = base_chrome_capabilities()
-#     this_driver = webdriver.Chrome(options=chrome_options,
-#                                    desired_capabilities=capabilities)
-#
-#     # logger.info(f"\nbrowser options:\n{chrome_options.__dict__}")
-#     return this_driver
+def playwright_tracing(request):
+    """
+        Playwright, not pytest, determines the value for the `tracing` CLI arg,
+        so we need to make it our own for Heofon.
+
+        Note: possible values for `tracing` are 'on', 'off', and
+        'retain-on-failure'. We only focus on the value 'on'.
+
+        :param request: pytest request object
+        :return: str, identifier for the appropriate browser driver
+    """
+    tracing_recast = True if request.config.option.tracing == 'on' else False
+    request.config.option.tracing = tracing_recast
+    logger.info(f"converted `tracing` value: {tracing_recast}")
+    return tracing_recast
 
 
 @pytest.fixture(scope="function")
@@ -828,10 +803,18 @@ def pwpage(request, browser):
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as playwright:
+        logger.info(f"\nheaded: {request.config.option.headed}")
+
         if browser == 'chromium':
-            this_browser = playwright.chromium.launch(headless=False)
-        elif browser == 'headless_chromium':
-            this_browser = playwright.chromium.launch(headless=True)
+            if request.config.option.headed:
+                this_browser = playwright.chromium.launch(headless=False)
+            else:
+                this_browser = playwright.chromium.launch(headless=True)
+        elif browser == 'firefox':
+            if request.config.option.headed:
+                this_browser = playwright.firefox.launch(headless=False)
+            else:
+                this_browser = playwright.firefox.launch(headless=True)
         else:
             msg = f"\nError: '{browser}' is not a valid selection."
             logger.error(msg)
@@ -839,11 +822,11 @@ def pwpage(request, browser):
 
         context = this_browser.new_context()
 
-        if request.config.option.playwright_tracing == 'on':
+        if request.config.option.tracing:
             # To enable playwright tracing, we need to start it before
             # any test actions are taken.
-            path_tracing = str(pytest.custom_namespace['this_test']) \
-                           + TESTCASE_PLAYWRIGHT_TRACING
+            test_path = str(pytest.custom_namespace['this_test'])
+            path_tracing = f"{test_path}/{TESTCASE_PLAYWRIGHT_TRACING}"
             context.tracing.start(screenshots=True)
             logger.info(f"\nGenerating tracing content.")
 
@@ -857,7 +840,7 @@ def pwpage(request, browser):
 
         yield pwpage
 
-        if request.config.option.playwright_tracing == 'on':
+        if request.config.option.tracing:
             # To generate the trace file, we need to stop it after.
             context.tracing.stop(path=path_tracing)
             logger.info(f"\nSaving tracing output.")
