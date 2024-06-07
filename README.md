@@ -107,7 +107,8 @@ Optional command line arguments you can pass to heofon:
 + *tier* is the environment to run the tests against; the choices are 'local',
 'qa', 'staging'; defaults to 'qa'. These don't work out of the box; they are placeholders
 that need to be configured with the actual name and URLs.
-+ *browser* is the browser to run the tests in; the choices are 'chromium', 'headless_chromium'; defaults to 'chromium'.
++ *browser* is the browser to run the tests in; the choices are 'chromium', 'firefox'; defaults to 'chromium'.
++ *headed* is a flag to run the browser in headed mode; the choices are 'on' and 'off'; defaults to 'off'.
 + *tracing* is a flag to enable Playwright tracing; the choices are 'on' and 'off'; defaults to 'off'.
 
 
@@ -116,3 +117,18 @@ Heofon is intended to be verbose in its logging; however, that's up to you to im
 
 By default, Heofon creates an output folder at heofon/output, and then for each test run Heofon creates a folder in _output_ named with the testrun's timestamp; this folder gets the HTML test results page, plus the text log of test run activity. This output is not automatically cleaned up. You'll have to define a workflow for this, if you want.
 
+
+### Tracing and Viewing Traces
+Tracing can be enabled by passing the --tracing flag to the pytest command. The trace file is saved to the output folder for the test run's test case. 
+
+To invoke the command with tracing enabled, use the following command:
+
+```
+$ pytest heofon/tests --tracing=on
+```
+
+To view the trace, use the following command:
+
+```
+$ playwright show-trace <path_to_trace>
+```
