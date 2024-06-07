@@ -119,9 +119,9 @@ By default, Heofon creates an output folder at heofon/output, and then for each 
 
 
 ### Tracing and Viewing Traces
-Tracing can be enabled by passing the --tracing flag to the pytest command. The trace file is saved to the output folder for the test run's test case. 
+Tracing can be enabled by passing the --tracing=on flag to the pytest command. The trace file is saved to the output folder for the test run's test case. 
 
-To invoke the command with tracing enabled, use the following command:
+To invoke the Pytest run command with tracing enabled, use the following command:
 
 ```
 $ pytest heofon/tests --tracing=on
@@ -132,3 +132,16 @@ To view the trace, use the following command:
 ```
 $ playwright show-trace <path_to_trace>
 ```
+
+
+### Recording and Viewing Videos
+Video recording can be enabled by passing the --video=on flag to the pytest command. The video file is saved to the output folder for the test run's test case. 
+
+To invoke the Pytest run command with tracing enabled, use the following command:
+
+```
+$ pytest heofon/tests --video=on
+```
+
+To view the video, open it from the output/testrun/testcase folder on local filesystem.
+

@@ -126,6 +126,8 @@ def pytest_configure(config):
     logger.info(f"\n----> browser: {browser}")
     headed = config.getoption('headed')
     logger.info(f"\n----> headed: {headed}")
+    video = config.getoption('video')
+    logger.info(f"\n----> video: {video}")
     if 'chromium' in browser:
         update_namespace({'devtools_supported': True}, verbose=True)
     elif 'firefox' in browser:
@@ -401,6 +403,9 @@ def configure_test_session(request):
 
     # handle the playwright CLI `tracing` argument
     playwright_tracing(request)
+
+    # handle the playwright CLI `video` argument
+    playwright_video(request)
 
     logger.info('--------------')
 
@@ -771,12 +776,29 @@ def playwright_tracing(request):
         'retain-on-failure'. We only focus on the value 'on'.
 
         :param request: pytest request object
-        :return: str, identifier for the appropriate browser driver
+        :return: bool, updated value for the pytest request tracing option
     """
     tracing_recast = True if request.config.option.tracing == 'on' else False
     request.config.option.tracing = tracing_recast
     logger.info(f"converted `tracing` value: {tracing_recast}")
     return tracing_recast
+
+
+def playwright_video(request):
+    """
+        Playwright, not pytest, determines the value for the `video` CLI arg,
+        so we need to make it our own for Heofon.
+
+        Note: possible values for `video` are 'on', 'off', and
+        'retain-on-failure'. We only focus on the value 'on'.
+
+        :param request: pytest request object
+        :return: bool, updated value for the pytest request video option
+    """
+    video_recast = True if request.config.option.video == 'on' else False
+    request.config.option.video = video_recast
+    logger.info(f"converted `video` value: {video_recast}")
+    return video_recast
 
 
 @pytest.fixture(scope="function")
@@ -805,6 +827,8 @@ def pwpage(request, browser):
     with sync_playwright() as playwright:
         logger.info(f"\nheaded: {request.config.option.headed}")
 
+        path_to_test = str(pytest.custom_namespace['this_test'])
+
         if browser == 'chromium':
             if request.config.option.headed:
                 this_browser = playwright.chromium.launch(headless=False)
@@ -821,12 +845,13 @@ def pwpage(request, browser):
             raise ValueError(msg)
 
         context = this_browser.new_context()
+        if request.config.option.video:
+            context = this_browser.new_context(record_video_dir=path_to_test)
 
         if request.config.option.tracing:
             # To enable playwright tracing, we need to start it before
             # any test actions are taken.
-            test_path = str(pytest.custom_namespace['this_test'])
-            path_tracing = f"{test_path}/{TESTCASE_PLAYWRIGHT_TRACING}"
+            path_tracing = f"{path_to_test}/{TESTCASE_PLAYWRIGHT_TRACING}"
             context.tracing.start(screenshots=True)
             logger.info(f"\nGenerating tracing content.")
 
